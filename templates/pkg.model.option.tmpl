@@ -1,0 +1,72 @@
+package dao
+
+{{ if .SkipImport }}
+{{ .ImportStr }}
+{{ else }}
+import (
+	"reflect"
+	"time"
+
+	"gorm.io/gorm"
+)
+{{ end }}
+{{ if .SkipWhereOption }}
+{{ .WhereOptionStruct }}
+{{ else }}
+type {{ .ModelName }}WhereOption struct {
+	{{ .ModelName }}       
+}
+{{ end }}
+
+func New{{ .ModelName }}WhereOption() *{{ .ModelName }}WhereOption {
+	return &{{ .ModelName }}WhereOption{}
+}
+{{ if .SkipWhere }}
+{{ .WhereFunc }}
+{{ else }}
+func (where *{{ .ModelName }}WhereOption) Where(db *gorm.DB) *gorm.DB {
+	return db
+}
+{{ end }}
+{{range .StructFields }}
+func (where *{{ $.ModelName }}WhereOption) {{  .Name }}(in {{ .Type }}) *{{ $.ModelName }}WhereOption {
+	where.{{ $.ModelName }}.{{  .Name }} = in
+	return where
+}
+{{end}}
+
+func (where *{{ .ModelName }}WhereOption) IsEmptyWhereOpt() bool {
+	return reflect.DeepEqual(where.{{ .ModelName }}, {{ .ModelName }}{})
+}
+
+func (where *{{ .ModelName }}WhereOption) TableName() string {
+	return where.{{ .ModelName }}.TableName()
+}
+
+{{ if .SkipPreload }}
+{{ .PreloadFunc }}
+{{ else }}
+func (where *{{ .ModelName }}WhereOption) Preload(db *gorm.DB) *gorm.DB {
+	return db
+}
+{{ end }}
+
+type {{.ModelName}}UpdateColumn struct {
+	Values map[string]interface{}
+}
+
+func New{{ .ModelName }}UpdateColumn() *{{ .ModelName }}UpdateColumn {
+	return &{{ .ModelName }}UpdateColumn{
+		Values: make(map[string]interface{}),
+	}
+}
+
+func (col *{{.ModelName}}UpdateColumn) Columns() interface{} {
+	return col
+}
+
+{{range .StructFields }}
+func (col *{{ $.ModelName }}UpdateColumn) {{ .Name }}(in {{ .Type }}) {
+	col.Values["{{ .NameSnake }}"] = in
+}
+{{end}}
