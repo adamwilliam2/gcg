@@ -30,9 +30,12 @@ var gcgCmd = &cobra.Command{
 	RunE:  GcgRunE,
 }
 
+var _additionalImportPkg string
+
 func init() {
-	gcgCmd.Flags().StringP("folder", "f", "", "gen source folder")                        // 產出目錄
-	gcgCmd.Flags().StringP("tmpl", "t", "./templates/pkg.model.option.tmpl", "tmpl file") // 模板
+	gcgCmd.Flags().StringP("folder", "f", "", "gen source folder")                                         // 產出目錄
+	gcgCmd.Flags().StringP("tmpl", "t", "./templates/pkg.model.option.tmpl", "tmpl file")                  // 模板
+	gcgCmd.Flags().StringVarP(&_additionalImportPkg, "additionalImportPkg", "p", "gopay", "要額外import的pkg") // 要額外加入的import file
 }
 
 func GcgRunE(cmd *cobra.Command, args []string) error {
@@ -52,6 +55,9 @@ func GcgRunE(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, file := range filesInfo {
+		if file.IsDir() {
+			continue
+		}
 		if strings.Contains(file.Name(), "gen") {
 			continue
 		}
@@ -96,6 +102,7 @@ func genFile(tmplFile, folder, fileName string) {
 		ModelName    string
 		StructFields []Field
 		ModelInfo
+		AdditionalImportPkg []*ImportPkg
 	}
 
 	for k, value := range v.structName {
@@ -124,9 +131,10 @@ func genFile(tmplFile, folder, fileName string) {
 		}
 		t1.Option()
 		err = t1.Execute(f, genTmpl{
-			ModelName:    k,
-			StructFields: value.Fields,
-			ModelInfo:    modelInfo,
+			ModelName:           k,
+			StructFields:        value.Fields,
+			ModelInfo:           modelInfo,
+			AdditionalImportPkg: v.importPkgs,
 		})
 
 		if err != nil {
@@ -137,7 +145,7 @@ func genFile(tmplFile, folder, fileName string) {
 }
 
 var (
-	commonInitialisms = []string{"API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SSH", "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF", "XSS"}
+	commonInitialisms = []string{"API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMS", "SMTP", "SSH", "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF", "XSS"}
 )
 
 func toSnakeCase(str string) string {
@@ -166,6 +174,7 @@ type visitor struct {
 	file       []byte
 	structName map[string]*StructFiled
 	command    []Command
+	importPkgs []*ImportPkg
 }
 
 type StructFiled struct {
@@ -176,6 +185,11 @@ type Field struct {
 	Name      string
 	Type      string
 	NameSnake string
+}
+
+type ImportPkg struct {
+	Alias string
+	Path  string
 }
 
 type Command struct {
@@ -201,6 +215,29 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 
 	switch x := n.(type) {
 	case *ast.GenDecl:
+		if x.Tok == token.IMPORT {
+			for _, spec := range x.Specs {
+				{
+					importSpec, ok := spec.(*ast.ImportSpec)
+					if !ok {
+						continue
+					}
+
+					var aliasPkgName string
+					if importSpec.Name != nil {
+						aliasPkgName = importSpec.Name.Name
+					}
+
+					pkg := strings.Trim(importSpec.Path.Value, "\"")
+					if strings.Contains(pkg, _additionalImportPkg) {
+						v.importPkgs = append(v.importPkgs, &ImportPkg{
+							Alias: aliasPkgName,
+							Path:  strings.Trim(importSpec.Path.Value, "\""),
+						})
+					}
+				}
+			}
+		}
 		if x.Tok != token.TYPE {
 			return v
 		}

@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"time"
 
+{{range .AdditionalImportPkg }}
+{{ if ne .Alias ""}} {{ .Alias}} {{else}}{{end}} "{{ .Path }}"
+{{end}}
 	"gorm.io/gorm"
 )
 {{ end }}
