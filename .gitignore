@@ -23,3 +23,6 @@ go.work.sum
 
 # VSCode
 .vscode
+
+# generate file under default output path
+output/gen_*
