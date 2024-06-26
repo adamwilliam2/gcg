@@ -39,13 +39,13 @@ func init() {
 	gcgCmd.Flags().StringVarP(&_additionalImportPkg, "additionalImportPkg", "p", "gopay", "要額外import的pkg") // 要額外加入的import file
 }
 
-func GcgRunE(cmd *cobra.Command, args []string) error {
-	folder := cmd.Flag("folder")
+func GcgRunE(_cmd *cobra.Command, _args []string) error {
+	folder := _cmd.Flag("folder")
 	if folder == nil || folder.Value.String() == "" {
 		return errors.New("folder not defined")
 	}
 
-	tmplFile := cmd.Flag("tmpl")
+	tmplFile := _cmd.Flag("tmpl")
 	if tmplFile == nil || tmplFile.Value.String() == "" {
 		return errors.New("tmpl file defined")
 	}
@@ -62,8 +62,7 @@ func GcgRunE(cmd *cobra.Command, args []string) error {
 		if strings.HasPrefix(file.Name(), "gen_") {
 			continue
 		}
-		fileName := folder.Value.String() + "/" + file.Name()
-		genFile(tmplFile.Value.String(), folder.Value.String(), fileName)
+		genFile(tmplFile.Value.String(), folder.Value.String(), file.Name())
 	}
 
 	// format file
@@ -85,18 +84,18 @@ func GcgRunE(cmd *cobra.Command, args []string) error {
 			out, err := goimportsCmd.CombinedOutput()
 			if err != nil {
 				log.Error().Msgf("errr~ %v", err)
-				log.Info().Msgf("goimports command~ %v", string(out))
+				log.Info().Msgf("goimports command failed %v", string(out))
 				return err
 			}
-			log.Info().Msgf("goimports command~ %v", string(out))
 		}
 	}
 
 	return nil
 }
 
-func genFile(tmplFile, folder, fileName string) {
-	b, err := os.ReadFile(fileName)
+func genFile(_tmplFile, _folder, _sourceFileName string) {
+	filePath := _folder + "/" + _sourceFileName
+	b, err := os.ReadFile(filePath)
 	if err != nil {
 		panic(err)
 	}
@@ -119,7 +118,7 @@ func genFile(tmplFile, folder, fileName string) {
 		fmt.Printf("%+v\n", v.command[i])
 	}
 
-	t1, err := template.ParseFiles(tmplFile)
+	t1, err := template.ParseFiles(_tmplFile)
 	if err != nil {
 		fmt.Println("Error creating template:", err)
 		return
@@ -137,15 +136,17 @@ func genFile(tmplFile, folder, fileName string) {
 			continue
 		}
 
-		fileName := toSnakeCase(k)
-		fileName = fmt.Sprintf("%s/gen_%s.go", folder, fileName)
+		newfilePath := fmt.Sprintf("%s/gen_%s.go", _folder, toSnakeCase(k))
 
-		fmt.Println(fileName)
-		modelInfo := ModelInfo{ModelName: k}
-		parseSourceFile(fileName, &modelInfo)
+		fmt.Println(newfilePath)
+		modelInfo := ModelInfo{
+			SourceFileName: _sourceFileName,
+			TmplFile:       _tmplFile,
+			ModelName:      k}
+		parseSourceFile(newfilePath, &modelInfo)
 
 		{ // merge imports
-			if defaultImportPkgs, exists := defaultPkgMappingByTemplates[tmplFile]; exists {
+			if defaultImportPkgs, exists := defaultPkgMappingByTemplates[_tmplFile]; exists {
 				v.importPkgs = append(v.importPkgs, defaultImportPkgs...)
 			}
 
@@ -167,7 +168,7 @@ func genFile(tmplFile, folder, fileName string) {
 		}
 
 		fmt.Printf("%+v\n", modelInfo)
-		f, err := os.Create(fileName)
+		f, err := os.Create(newfilePath)
 		if err != nil {
 			fmt.Printf("create new file has failed :%v", err)
 			return
@@ -197,26 +198,27 @@ var (
 	commonInitialisms = []string{"API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMS", "SMTP", "SSH", "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF", "XSS"}
 )
 
-func toSnakeCase(str string) string {
-	var result strings.Builder
+func toSnakeCase(_str string) string {
 
+	var strReplaceWithInitialisms string = _str
 	for _, initialism := range commonInitialisms {
-		if strings.Contains(str, initialism) {
-			str = strings.ReplaceAll(str, initialism, string(initialism[0])+strings.ToLower(initialism[1:]))
+		if strings.Contains(_str, initialism) {
+			strReplaceWithInitialisms = strings.ReplaceAll(_str, initialism, string(initialism[0])+strings.ToLower(initialism[1:]))
 		}
 	}
 
-	for i, r := range str {
+	var snakeCaseStrBuilder strings.Builder
+	for i, r := range strReplaceWithInitialisms {
 		if unicode.IsUpper(r) {
 			if i > 0 {
-				result.WriteByte('_')
+				snakeCaseStrBuilder.WriteByte('_')
 			}
-			result.WriteRune(unicode.ToLower(r))
+			snakeCaseStrBuilder.WriteRune(unicode.ToLower(r))
 		} else {
-			result.WriteRune(r)
+			snakeCaseStrBuilder.WriteRune(r)
 		}
 	}
-	return result.String()
+	return snakeCaseStrBuilder.String()
 }
 
 type visitor struct {
@@ -254,9 +256,9 @@ var defaultPkgMappingByTemplates = map[string][]ImportPkg{
 	},
 }
 
-func (v *visitor) shouldSkip(genDecl *ast.GenDecl) bool {
-	if genDecl.Doc != nil {
-		for _, comment := range genDecl.Doc.List {
+func (v *visitor) shouldSkip(_genDecl *ast.GenDecl) bool {
+	if _genDecl.Doc != nil {
+		for _, comment := range _genDecl.Doc.List {
 			if strings.Contains(comment.Text, "gopher:gen_disable") {
 				return true
 			}
@@ -265,12 +267,12 @@ func (v *visitor) shouldSkip(genDecl *ast.GenDecl) bool {
 	return false
 }
 
-func (v *visitor) Visit(n ast.Node) ast.Visitor {
-	if n == nil {
+func (v *visitor) Visit(_astNode ast.Node) ast.Visitor {
+	if _astNode == nil {
 		return nil
 	}
 
-	switch x := n.(type) {
+	switch x := _astNode.(type) {
 	case *ast.GenDecl:
 		if x.Tok == token.IMPORT {
 			for _, spec := range x.Specs {
@@ -343,6 +345,9 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 }
 
 type ModelInfo struct {
+	SourceFileName string
+	TmplFile       string
+
 	ModelName string
 
 	SkipWhere bool
@@ -358,20 +363,20 @@ type ModelInfo struct {
 }
 
 // Parses the Go source file and determines if the Page method should be skipped
-func parseSourceFile(filename string, modelInfo *ModelInfo) {
+func parseSourceFile(_filePath string, modelInfo *ModelInfo) {
 	if modelInfo.oldImports == nil {
 		modelInfo.oldImports = []ImportPkg{}
 	}
 
 	fset := token.NewFileSet()
-	fmt.Println(filename)
-	node, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+	fmt.Println(_filePath)
+	node, err := parser.ParseFile(fset, _filePath, nil, parser.ParseComments)
 	if err != nil {
 		log.Printf("err: %+v", err)
 		return
 	}
 
-	src, err := os.ReadFile(filename)
+	src, err := os.ReadFile(_filePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read file: %s\n", err)
 		os.Exit(1)
