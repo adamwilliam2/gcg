@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"html/template"
 	"os"
+	"os/exec"
 	"strings"
 	"unicode"
 
@@ -58,11 +59,37 @@ func GcgRunE(cmd *cobra.Command, args []string) error {
 		if file.IsDir() {
 			continue
 		}
-		if strings.Contains(file.Name(), "gen") {
+		if strings.HasPrefix(file.Name(), "gen_") {
 			continue
 		}
 		fileName := folder.Value.String() + "/" + file.Name()
 		genFile(tmplFile.Value.String(), folder.Value.String(), fileName)
+	}
+
+	// format file
+	{
+		outputFiles, err := os.ReadDir(folder.Value.String())
+		if err != nil {
+			return errors.Wrap(err, "read output file folder failed")
+		}
+		for i := range outputFiles {
+			if outputFiles[i].IsDir() {
+				continue
+			}
+			if !strings.HasPrefix(outputFiles[i].Name(), "gen_") {
+				continue
+			}
+
+			goimportsCmd := exec.Command("goimports", "-w", "-local", "gopay", outputFiles[i].Name())
+			goimportsCmd.Dir = fmt.Sprintf("./%s", folder.Value.String())
+			out, err := goimportsCmd.CombinedOutput()
+			if err != nil {
+				log.Error().Msgf("errr~ %v", err)
+				log.Info().Msgf("goimports command~ %v", string(out))
+				return err
+			}
+			log.Info().Msgf("goimports command~ %v", string(out))
+		}
 	}
 
 	return nil
@@ -102,7 +129,7 @@ func genFile(tmplFile, folder, fileName string) {
 		ModelName    string
 		StructFields []Field
 		ModelInfo
-		AdditionalImportPkg []*ImportPkg
+		AdditionalImportPkg []ImportPkg
 	}
 
 	for k, value := range v.structName {
@@ -116,6 +143,28 @@ func genFile(tmplFile, folder, fileName string) {
 		fmt.Println(fileName)
 		modelInfo := ModelInfo{ModelName: k}
 		parseSourceFile(fileName, &modelInfo)
+
+		{ // merge imports
+			if defaultImportPkgs, exists := defaultPkgMappingByTemplates[tmplFile]; exists {
+				v.importPkgs = append(v.importPkgs, defaultImportPkgs...)
+			}
+
+			newPkgs := []ImportPkg{}
+			for i := range modelInfo.oldImports {
+				exists := false
+				for j := range v.importPkgs {
+					if modelInfo.oldImports[i].Path == v.importPkgs[j].Path {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					newPkgs = append(newPkgs, modelInfo.oldImports[i])
+				}
+			}
+
+			v.importPkgs = append(v.importPkgs, newPkgs...)
+		}
 
 		fmt.Printf("%+v\n", modelInfo)
 		f, err := os.Create(fileName)
@@ -174,7 +223,7 @@ type visitor struct {
 	file       []byte
 	structName map[string]*StructFiled
 	command    []Command
-	importPkgs []*ImportPkg
+	importPkgs []ImportPkg
 }
 
 type StructFiled struct {
@@ -195,6 +244,14 @@ type ImportPkg struct {
 type Command struct {
 	Pos     int
 	Content string
+}
+
+var defaultPkgMappingByTemplates = map[string][]ImportPkg{
+	"./templates/pkg.model.option.tmpl": {
+		{Alias: "", Path: "reflect"},
+		{Alias: "", Path: "time"},
+		{Alias: "", Path: "gorm.io/gorm"},
+	},
 }
 
 func (v *visitor) shouldSkip(genDecl *ast.GenDecl) bool {
@@ -230,7 +287,7 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 
 					pkg := strings.Trim(importSpec.Path.Value, "\"")
 					if strings.Contains(pkg, _additionalImportPkg) {
-						v.importPkgs = append(v.importPkgs, &ImportPkg{
+						v.importPkgs = append(v.importPkgs, ImportPkg{
 							Alias: aliasPkgName,
 							Path:  strings.Trim(importSpec.Path.Value, "\""),
 						})
@@ -286,9 +343,7 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 }
 
 type ModelInfo struct {
-	ModelName  string
-	SkipImport bool
-	ImportStr  string
+	ModelName string
 
 	SkipWhere bool
 	WhereFunc string
@@ -298,10 +353,16 @@ type ModelInfo struct {
 
 	SkipWhereOption   bool
 	WhereOptionStruct string
+
+	oldImports []ImportPkg
 }
 
 // Parses the Go source file and determines if the Page method should be skipped
 func parseSourceFile(filename string, modelInfo *ModelInfo) {
+	if modelInfo.oldImports == nil {
+		modelInfo.oldImports = []ImportPkg{}
+	}
+
 	fset := token.NewFileSet()
 	fmt.Println(filename)
 	node, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
@@ -322,23 +383,21 @@ func parseSourceFile(filename string, modelInfo *ModelInfo) {
 			if x.Tok != token.IMPORT {
 				break
 			}
-			var imports []string
+
 			for _, spec := range x.Specs {
 				if imp, ok := spec.(*ast.ImportSpec); ok {
 					name := ""
 					if imp.Name != nil {
 						name = imp.Name.String()
 					}
-					imports = append(imports, fmt.Sprintf("%s %s", name, imp.Path.Value))
+
+					modelInfo.oldImports = append(modelInfo.oldImports, ImportPkg{
+						Alias: name,
+						Path:  strings.Trim(imp.Path.Value, "\""),
+					})
 				}
 			}
 
-			modelInfo.SkipImport = true
-			modelInfo.ImportStr = fmt.Sprintf(`
-import (
-	%s
-)`, strings.Join(imports, "\n"))
-			fmt.Println(modelInfo.ImportStr)
 		case *ast.FuncDecl:
 			if x.Recv == nil || len(x.Recv.List) == 0 {
 				return true

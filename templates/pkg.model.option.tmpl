@@ -1,18 +1,10 @@
 package dao
 
-{{ if .SkipImport }}
-{{ .ImportStr }}
-{{ else }}
 import (
-	"reflect"
-	"time"
-
 {{range .AdditionalImportPkg }}
-{{ if ne .Alias ""}} {{ .Alias}} {{else}}{{end}} "{{ .Path }}"
-{{end}}
-	"gorm.io/gorm"
+	{{ if ne .Alias ""}}{{ .Alias}} {{else}}{{end}}"{{ .Path }}"{{end}}
 )
-{{ end }}
+
 {{ if .SkipWhereOption }}
 {{ .WhereOptionStruct }}
 {{ else }}
