@@ -238,7 +238,7 @@ var defaultPkgMappingByTemplates = map[string][]ImportPkg{
 func (v *visitor) shouldSkip(_genDecl *ast.GenDecl) bool {
 	if _genDecl.Doc != nil {
 		for _, comment := range _genDecl.Doc.List {
-			if strings.Contains(comment.Text, "gopher:gen_disable") {
+			if strings.Contains(comment.Text, `gcg:"gen_disable"`) || strings.Contains(comment.Text, `gcg:"-"`) {
 				return true
 			}
 		}
@@ -291,9 +291,8 @@ func (v *visitor) Visit(_astNode ast.Node) ast.Visitor {
 				continue
 			}
 
-			// Check for a specific comment
+			// 依據comment 決定要不要略過這個物件
 			if v.shouldSkip(x) {
-				// Skip generating for this struct
 				continue
 			}
 
@@ -301,15 +300,19 @@ func (v *visitor) Visit(_astNode ast.Node) ast.Visitor {
 				Fields: make([]Field, 0, len(d.Fields.List)),
 			}
 			for _, field := range d.Fields.List {
-				if len(field.Names) == 0 {
-					continue
-				}
-				if field.Doc != nil {
-					for _, comment := range field.Doc.List {
-						if strings.Contains(comment.Text, "gopher:gen_disable") {
-							continue
-						}
+				// 依據欄位tag 決定要不要略過這個欄位
+				if field.Tag != nil {
+					if strings.Contains(field.Tag.Value, `gcg:"gen_disable"`) || strings.Contains(field.Tag.Value, `gcg:"-"`) {
+						continue
 					}
+				}
+				if len(field.Names) == 0 {
+					_, ok := field.Type.(*ast.SelectorExpr)
+					if !ok {
+						continue
+					}
+					// TODO 遍歷embeded struct
+					continue
 				}
 				v.structName[typeSpec.Name.Name].Fields = append(v.structName[typeSpec.Name.Name].Fields,
 					Field{
