@@ -5,10 +5,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"html/template"
 	"os"
 	"os/exec"
 	"strings"
+	"text/template"
 	"unicode"
 
 	"github.com/pkg/errors"

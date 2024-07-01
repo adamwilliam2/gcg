@@ -14,6 +14,17 @@ import (
 {{ else }}
 type {{ .ModelName }}WhereOption struct {
 	{{ .ModelName }}       
+{{range .StructFields }}
+	{{ if eq .Type "time.Time"}}
+	{{  .Name }}Gte, {{  .Name }}Gt {{ .Type }}
+	{{  .Name }}Lte, {{  .Name }}Lt {{ .Type }}
+	{{ else if eq .Type "*time.Time"}}
+	{{  .Name }}Gte, {{  .Name }}Gt {{ .Type }}
+	{{  .Name }}Lte, {{  .Name }}Lt {{ .Type }}
+	{{  .Name }}IsNull bool
+	{{else}}
+	{{end}}
+{{end}}
 }
 {{ end }}
 
@@ -23,15 +34,69 @@ func New{{ .ModelName }}WhereOption() *{{ .ModelName }}WhereOption {
 {{ if .SkipWhere }}
 {{ .WhereFunc }}
 {{ else }}
-func (where *{{ .ModelName }}WhereOption) Where(db *gorm.DB) *gorm.DB {
-	return db
+func (where *{{ .ModelName }}WhereOption) Where(tx *gorm.DB) *gorm.DB {
+{{range .StructFields }}
+	{{ if eq .Type "time.Time"}}
+		if !where.{{  .Name }}Gte.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} >= ?", where.{{  .Name }}Gte)
+		}
+		if !where.{{  .Name }}Gt.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} > ?", where.{{  .Name }}Gt)
+		}
+		if !where.{{  .Name }}Lte.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} <= ?", where.{{  .Name }}Lte)
+		}
+		if !where.{{  .Name }}Lt.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} < ?", where.{{  .Name }}Lt)
+		}
+	{{ else if eq .Type "*time.Time"}}
+		if where.{{  .Name }}Gte != nil && !where.{{  .Name }}Gte.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} >= ?", where.{{  .Name }}Gte)
+		}
+		if where.{{  .Name }}Gt != nil && !where.{{  .Name }}Gt.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} > ?", where.{{  .Name }}Gt)
+		}
+		if where.{{  .Name }}Lte != nil && !where.{{  .Name }}Lte.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} <= ?", where.{{  .Name }}Lte)
+		}
+		if where.{{  .Name }}Lt != nil && !where.{{  .Name }}Lt.IsZero() {
+			tx = tx.Where("{{  .NameSnake }} < ?", where.{{  .Name }}Lt)
+		}
+	{{else}}	{
+		var init{{  .Name }} {{ .Type }}
+		if where.{{ $.ModelName }}.{{  .Name }} != init{{  .Name }} {
+			tx = tx.Where("{{  .NameSnake }} = ?", where.{{ $.ModelName }}.{{  .Name }})
+		}
+	}
+	{{end}}
+{{end}}
+	return tx
 }
 {{ end }}
 {{range .StructFields }}
-func (where *{{ $.ModelName }}WhereOption) {{  .Name }}(in {{ .Type }}) *{{ $.ModelName }}WhereOption {
-	where.{{ $.ModelName }}.{{  .Name }} = in
+	{{ if eq .Type "time.Time"}}
+func (where *{{ $.ModelName }}WhereOption) Set{{  .Name }}Between(_startTime,_endTime {{ .Type }}) *{{ $.ModelName }}WhereOption {
+	where.{{  .Name }}Gte = _startTime
+	where.{{  .Name }}Lte = _endTime
 	return where
 }
+	{{ else if eq .Type "*time.Time"}}
+func (where *{{ $.ModelName }}WhereOption) Set{{  .Name }}Between(_startTime,_endTime {{ .Type }}) *{{ $.ModelName }}WhereOption {
+	where.{{  .Name }}Gte = _startTime
+	where.{{  .Name }}Lte = _endTime
+	return where
+}
+
+func (where *{{ $.ModelName }}WhereOption) Set{{  .Name }}IsNull(_input bool) *{{ $.ModelName }}WhereOption {
+	where.{{  .Name }}IsNull = _input
+	return where
+}
+	{{else}}
+func (where *{{ $.ModelName }}WhereOption) Set{{  .Name }}(_input {{ .Type }}) *{{ $.ModelName }}WhereOption {
+	where.{{ $.ModelName }}.{{  .Name }} = _input
+	return where
+}
+	{{end}}
 {{end}}
 
 func (where *{{ .ModelName }}WhereOption) IsEmptyWhereOpt() bool {
@@ -45,9 +110,10 @@ func (where *{{ .ModelName }}WhereOption) TableName() string {
 {{ if .SkipPreload }}
 {{ .PreloadFunc }}
 {{ else }}
-func (where *{{ .ModelName }}WhereOption) Preload(db *gorm.DB) *gorm.DB {
-	return db
-}
+// TODO: not support yet
+// func (where *{{ .ModelName }}WhereOption) Preload(tx *gorm.DB) *gorm.DB {
+// 	return tx
+// }
 {{ end }}
 
 type {{.ModelName}}UpdateColumn struct {
@@ -65,7 +131,7 @@ func (col *{{.ModelName}}UpdateColumn) Columns() interface{} {
 }
 
 {{range .StructFields }}
-func (col *{{ $.ModelName }}UpdateColumn) {{ .Name }}(in {{ .Type }}) {
-	col.Values["{{ .NameSnake }}"] = in
+func (col *{{ $.ModelName }}UpdateColumn) Set{{ .Name }}(_input {{ .Type }}) {
+	col.Values["{{ .NameSnake }}"] = _input
 }
 {{end}}
