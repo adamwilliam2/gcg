@@ -35,7 +35,7 @@ var _additionalImportPkg string
 
 func init() {
 	gcgCmd.Flags().StringP("folder", "f", "", "gen source folder")                                         // 產出目錄
-	gcgCmd.Flags().StringP("tmpl", "t", "./templates/pkg.model.option.tmpl", "tmpl file")                  // 模板
+	gcgCmd.Flags().String("optionTmpl", "./templates/pkg.model.option.tmpl", "tmpl file")                  // option模板
 	gcgCmd.Flags().StringVarP(&_additionalImportPkg, "additionalImportPkg", "p", "gopay", "要額外import的pkg") // 要額外加入的import file
 }
 
@@ -45,9 +45,9 @@ func GcgRunE(_cmd *cobra.Command, _args []string) error {
 		return errors.New("folder not defined")
 	}
 
-	tmplFile := _cmd.Flag("tmpl")
-	if tmplFile == nil || tmplFile.Value.String() == "" {
-		return errors.New("tmpl file defined")
+	optionTmpl := _cmd.Flag("optionTmpl")
+	if optionTmpl == nil || optionTmpl.Value.String() == "" {
+		return errors.New("option tmpl file not defined")
 	}
 
 	filesInfo, err := os.ReadDir(folder.Value.String())
@@ -62,7 +62,7 @@ func GcgRunE(_cmd *cobra.Command, _args []string) error {
 		if strings.HasPrefix(file.Name(), "gen_") {
 			continue
 		}
-		genFile(tmplFile.Value.String(), folder.Value.String(), file.Name())
+		genFile(optionTmpl.Value.String(), folder.Value.String(), file.Name())
 	}
 
 	// format file
@@ -118,19 +118,6 @@ func genFile(_tmplFile, _folder, _sourceFileName string) {
 		fmt.Printf("%+v\n", v.command[i])
 	}
 
-	t1, err := template.ParseFiles(_tmplFile)
-	if err != nil {
-		fmt.Println("Error creating template:", err)
-		return
-	}
-
-	type genTmpl struct {
-		ModelName    string
-		StructFields []Field
-		ModelInfo
-		AdditionalImportPkg []ImportPkg
-	}
-
 	for k, value := range v.structName {
 		if len(value.Fields) == 0 {
 			continue
@@ -168,27 +155,19 @@ func genFile(_tmplFile, _folder, _sourceFileName string) {
 		}
 
 		fmt.Printf("%+v\n", modelInfo)
-		f, err := os.Create(newfilePath)
-		if err != nil {
-			fmt.Printf("create new file has failed :%v", err)
-			return
-		}
-
-		defer f.Close()
 		for i := range value.Fields {
 			value.Fields[i].NameSnake = toSnakeCase(value.Fields[i].Name)
 			fmt.Println(value.Fields[i].NameSnake)
 		}
-		t1.Option()
-		err = t1.Execute(f, genTmpl{
+
+		err = renderTemplate(newfilePath, _tmplFile, genTmpl{
 			ModelName:           k,
 			StructFields:        value.Fields,
 			ModelInfo:           modelInfo,
 			AdditionalImportPkg: v.importPkgs,
 		})
-
 		if err != nil {
-			fmt.Printf("write file has failed :%v", err)
+			fmt.Printf("%v", err)
 			return
 		}
 	}
@@ -443,4 +422,31 @@ func parseSourceFile(_filePath string, modelInfo *ModelInfo) {
 
 		return true
 	})
+}
+
+type genTmpl struct {
+	ModelInfo
+	ModelName           string
+	StructFields        []Field
+	AdditionalImportPkg []ImportPkg
+}
+
+func renderTemplate(_newfilePath string, _tmplFile string, _genTmpl genTmpl) error {
+	f, err := os.Create(_newfilePath)
+	if err != nil {
+		return errors.New(fmt.Sprintf("os.Create new file failed: %v", err))
+	}
+	defer f.Close()
+
+	t1, err := template.ParseFiles(_tmplFile)
+	if err != nil {
+		return errors.New(fmt.Sprintf("template.ParseFiles failed: %v", err))
+	}
+	t1.Option()
+
+	err = t1.Execute(f, _genTmpl)
+	if err != nil {
+		return errors.New(fmt.Sprintf("template.Execute failed :%v", err))
+	}
+	return nil
 }
